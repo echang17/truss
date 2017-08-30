@@ -1,0 +1,192 @@
+name=input('enter filename with .dat suffix: ','s');
+
+%open file
+fid=fopen(name);
+matcount=0;
+while feof(fid)==0
+    line=fgetl(fid); 
+    if line(length(line))=='.'
+        header=line;
+    end
+    if line(1)=='%'
+        line=fgetl(fid);
+        header2=line;
+        line=fgetl(fid);
+        header3=line;
+        line=fgetl(fid);
+        header4=line;
+    end
+        
+    if line(1)=='C'
+        count=1;
+        matcount=1;
+    elseif line(1)=='X'
+        [trash,row]=strtok(line,'[');
+        X=str2num(row(2:(length(row)-2)));      
+    elseif line(1)=='Y'
+        [trash,row]=strtok(line,'[');
+        Y=str2num(row(2:(length(row)-2)));
+    elseif line(1)=='L'
+        [trash,row]=strtok(line,'[');
+        L=str2num(row(2:(length(row)-2)));
+        L=L';
+    end
+    
+    
+while matcount==1
+   if line(1)=='C'
+        C(count,:)=str2num(line(6:(length(line)-1)));
+        count=count+1;
+        line=fgetl(fid);
+   elseif line(length(line)-1)==']'
+        C(count,:)=str2num(line(5:(length(line)-2)));
+        line=fgetl(fid);
+        matcount=2;
+        count=1;
+   else
+       C(count,:)=str2num(line(5:(length(line)-1)));
+        count=count+1;
+        line=fgetl(fid); 
+   end
+end
+while matcount==2
+    if line(1)=='S'
+        Sx(count,:)=str2num(line(7:(length(line)-1)));
+        count=count+1;
+        line=fgetl(fid);
+    elseif line(length(line)-1)==']'
+        Sx(count,:)=str2num(line(5:(length(line)-2)));
+        line=fgetl(fid);
+        matcount=3;
+        count=1;
+    else
+        Sx(count,:)=str2num(line(5:(length(line)-1)));
+        count=count+1;
+        line=fgetl(fid);
+    end
+end
+while matcount==3
+    if line(1)=='S'
+        Sy(count,:)=str2num(line(7:(length(line)-1)));
+        count=count+1;
+        line=fgetl(fid);
+    elseif line(length(line)-1)==']'
+        Sy(count,:)=str2num(line(5:(length(line)-2)));
+        matcount=0;
+        count=1;
+    else
+        Sy(count,:)=str2num(line(5:(length(line)-1)));
+        count=count+1;
+        line=fgetl(fid);
+    end
+end
+end
+fclose(fid);
+
+
+%code starts here
+[J,M]=size(C);
+Ax=C;
+Ay=C;
+
+%print header
+fprintf('%s\n %s\n %s\n %s\n', header, header2, header3, header4)
+
+fprintf('DATE: %s\n',date)
+
+%print load applied
+fprintf('Load: %d N\n', L(find(L~=0))) 
+
+
+%creating the upper left portion of the A matrix using x coordinates (Ax)
+for i=1:J
+    mc=find(C(i,:)==1);
+    for j=1:M
+        if C(i,j)==1
+            jc=find(C(:,j)==1);
+            pos1=jc(find(jc~=i));
+            pos2=jc(find(jc==i));
+            mlength=sqrt((X(pos1)-X(pos2)).^2+(Y(pos1)-Y(pos2)).^2); 
+            Ax(jc(find(jc==i)),mc(find(mc==j)))=(X(pos1)-X(pos2))/mlength;
+            vec(j)=mlength;
+        end
+        
+    end
+end
+
+%creating the lower left portion of the A matrix using y coordinates (Ay)            
+for i=1:J
+    mc=find(C(i,:)==1);
+    for j=1:M
+        if C(i,j)==1
+            jc=find(C(:,j)==1);
+            pos1=jc(find(jc~=i));
+            pos2=jc(find(jc==i));
+            mlength=sqrt((X(pos1)-X(pos2)).^2+(Y(pos1)-Y(pos2)).^2);
+            Ay(jc(find(jc==i)),mc(find(mc==j)))=(Y(pos1)-Y(pos2))/mlength;
+        else
+        end
+    end
+end
+
+%concatenating Ax, Ay, and the support force matrices, Sx and Sy, into
+%matrix A for solving via linear algebra
+A=[Ax Sx;Ay Sy];
+
+%use linear algebra to solve for T, a column vector of resultant forces
+T=inv(A)*L;
+
+fprintf('Member forces in Newtons:\n')
+
+%print all resultant forces and & label as tension or compression based on sign
+forcesign = sign(T);
+for i=1:(numel(T)-3)
+    if forcesign(i)==1
+        fprintf('m%d: %f %s\n',i, abs(T(i)), '(T)')
+    elseif forcesign(i)==-1
+        fprintf('m%d: %f %s\n',i, abs(T(i)), '(C)')
+    else 
+        fprintf('m%d: %f\n',i, abs(T(i)))
+    end
+end
+
+%print support forces
+fprintf('Reaction forces in Newtons:\n')
+fprintf('Sx1: %f\n',T(numel(T)-2))
+fprintf('Sy1: %f\n',T(numel(T)-1))
+fprintf('Sy2: %f\n',T(numel(T)))
+
+Ltot=cumsum(vec);
+
+
+%calc and print cost of truss based on given equation, Cost=$10J+$1L
+fprintf('Cost of truss: $%f\n', ((10*J)+(1*Ltot(end))))
+
+%calc and print max load/cost ratio by dividing total load by total cost
+fprintf('Theoretical max load/cost ratio in N/$: %f\n',(L(find(L~=0)))/((10*J)+(1*Ltot(end))))
+
+%calculate buckling load, left in vector F of length = number of members
+fsnosupp=forcesign(1:(length(forcesign)-3));
+compresslength=vec(find(fsnosupp==-1));
+compression=T(find(fsnosupp==-1));
+for i=1:length(compresslength)
+    F(i)=(317.1)*(compresslength(i)^(-1.407));
+end
+
+%calculating uncertainty force, left in vector F of length = number of
+%members
+for i=1:length(vec)
+    U(i)=(226.8)/(vec(i)^(2.407));
+end
+
+%which member buckles first? compression to force buckling load
+compbuckrat=abs(compression')./F;
+
+maxloccompval=compression(find(max(compbuckrat)));
+firsttofailforce=T(find(maxloccompval==T));
+
+%firsttofailmemnum= number of member that will fail first
+firsttofailmemnum=find(T==firsttofailforce);
+
+%uncertainty of firsttofailmemnum/100 *bucklingforce of same member (N)
+UofTruss=(U(firsttofailmemnum)/100)*(F(find(compression==firsttofailforce)));
